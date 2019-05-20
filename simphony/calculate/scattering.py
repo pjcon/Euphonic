@@ -7,7 +7,8 @@ from simphony import ureg
 
 
 def structure_factor(data, scattering_lengths, T=5.0, scale=1.0,
-                     calc_bose=True, dw_seedname=None, dw_grid=None):
+                     calc_bose=True, dw_seedname=None, dw_grid=None,
+                     dw_iso=False):
     """
     Calculate the one phonon inelastic scattering for a list of q-points
     See M. Dove Structure and Dynamics Pg. 226
@@ -36,6 +37,10 @@ def structure_factor(data, scattering_lengths, T=5.0, scale=1.0,
     dw_seedname : string, optional, default None
         If set, will calculate the Debye-Waller factor over the q-points in
         the .phonon file with this seedname.
+    dw_iso : bool, default False
+        If true, assume the Debye-Waller factor is isotropic and only use
+        the diagonal (xx, yy, zz) of the 3x3 Debye-Waller coefficient matrices
+        to calculate the Debye-Waller factor
 
     Returns
     -------
@@ -78,7 +83,11 @@ def structure_factor(data, scattering_lengths, T=5.0, scale=1.0,
         dw = dw_coeff(dw_data, T)
 
     if dw_grid or dw_seedname:
-        dw_factor = np.exp(-np.einsum('jkl,ik,il->ij', dw, Q, Q)/2)
+        if dw_iso:
+            dw_diag = np.diagonal(dw, axis1=1, axis2=2)
+            dw_factor = np.exp(-np.einsum('jk,ik,ik->ij', dw_diag, Q, Q)/2)
+        else:
+            dw_factor = np.exp(-np.einsum('jkl,ik,il->ij', dw, Q, Q)/2)
     else:
         dw_factor = np.ones((data.n_qpts, data.n_ions))
 
@@ -187,7 +196,7 @@ def dw_coeff(data, T, grid=None):
 
 
 def sqw_map(data, ebins, scattering_lengths, T=5.0, scale=1.0, calc_bose=True,
-            dw_grid=None, dw_seedname=None, ewidth=0, qwidth=0):
+            dw_grid=None, dw_seedname=None, dw_iso=False, ewidth=0, qwidth=0):
     """
     Calculate S(Q, w) for each q-point contained in data and each bin defined
     in ebins, and sets the sqw_map and sqw_ebins attributes of the data object
@@ -215,6 +224,10 @@ def sqw_map(data, ebins, scattering_lengths, T=5.0, scale=1.0, calc_bose=True,
     dw_seedname : string, optional, default None
         If set, will calculate the Debye-Waller factor over the q-points in
         the .phonon file with this seedname.
+    dw_iso : bool, default False
+        If true, assume the Debye-Waller factor is isotropic and only use
+        the diagonal (xx, yy, zz) of the 3x3 Debye-Waller coefficient matrices
+        to calculate the Debye-Waller factor
     ewidth : float, optional, default 1.5
         The FWHM of the Gaussian energy resolution function in meV
     qwidth : float, optional, default 0.1
@@ -239,7 +252,7 @@ def sqw_map(data, ebins, scattering_lengths, T=5.0, scale=1.0, calc_bose=True,
 
     sf = structure_factor(data, scattering_lengths, T=T, scale=scale,
                           calc_bose=False, dw_grid=dw_grid,
-                          dw_seedname=dw_seedname)
+                          dw_seedname=dw_seedname, dw_iso=dw_iso)
     if calc_bose:
         p_intensity = sf*bose_factor(freqs, T)
         n_intensity = sf*bose_factor(-freqs, T)
