@@ -286,9 +286,7 @@ class InterpolationData(PhononData):
                 asr = None
 
         prev_evecs = np.identity(3*n_ions)
-        for q in tqdm(range(n_qpts)):
-           
-            tqdm(desc = "Interpolating Phonons, Looping through Q POINT " + str(q), unit = "qpts")
+        for q in tqdm(range(n_qpts), desc = "Interpolating Phonons", unit = "qpts"):
             qpt = qpts[q, :]
 
             dyn_mat = self._calculate_dyn_mat(
