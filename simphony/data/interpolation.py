@@ -2,6 +2,7 @@ import math
 import sys
 import warnings
 import numpy as np
+from tqdm import tqdm
 from scipy.linalg.lapack import zheev
 from scipy.special import erfc
 from simphony import ureg
@@ -77,7 +78,6 @@ class InterpolationData(PhononData):
         q-points specified in split_i. Empty if no LO-TO splitting
 
     """
-
     def __init__(self, seedname, model='CASTEP', path='', qpts=np.array([]),
                  **kwargs):
         """
@@ -115,7 +115,7 @@ class InterpolationData(PhononData):
 
         if self.n_qpts > 0:
             self.calculate_fine_phonons(qpts, **kwargs)
-
+    
     def _get_data(self, seedname, model, path):
         """"
         Calls the correct reader to get the required data, and sets the
@@ -155,7 +155,10 @@ class InterpolationData(PhononData):
         except KeyError:
             pass
 
+    
+  
     def calculate_fine_phonons(
+        
         self, qpts, asr=None, precondition=False, set_attrs=True, dipole=True,
             eta_scale=1.0, splitting=True):
         """
@@ -199,6 +202,10 @@ class InterpolationData(PhononData):
             The phonon eigenvectors (same as set to
             InterpolationData.eigenvecs)
         """
+
+
+        tqdm.write("Looping through q points")
+        
         if asr == 'realspace':
             if not hasattr(self, 'force_constants_asr'):
                 self.force_constants_asr = self._enforce_realspace_asr()
@@ -279,7 +286,9 @@ class InterpolationData(PhononData):
                 asr = None
 
         prev_evecs = np.identity(3*n_ions)
-        for q in range(n_qpts):
+        for q in tqdm(range(n_qpts)):
+           
+            tqdm(desc = "Interpolating Phonons, Looping through Q POINT " + str(q), unit = "qpts")
             qpt = qpts[q, :]
 
             dyn_mat = self._calculate_dyn_mat(
@@ -361,7 +370,8 @@ class InterpolationData(PhononData):
             self.split_eigenvecs = split_eigenvecs
 
         return freqs, eigenvecs
-
+        
+    
     def _calculate_dyn_mat(self, q, fc_img_weighted, unique_sc_offsets,
                            unique_sc_i, unique_cell_origins, unique_cell_i):
         """
@@ -431,7 +441,7 @@ class InterpolationData(PhononData):
         # formed by summing the force_constants matrix which has [j, i]
         # indices
         return np.transpose(dyn_mat)
-
+    
     def _dipole_correction_init(self, eta_scale=1.0):
         """
         Calculate the q-independent parts of the long range correction to the
@@ -564,7 +574,7 @@ class InterpolationData(PhononData):
         self._gvecs_cart = gvecs_cart
         self._gvec_phases = gvec_phases
         self._dipole_q0 = dipole_q0
-
+    
     def _calculate_dipole_correction(self, q):
         """
         Calculate the long range correction to the dynamical matrix using the
@@ -647,7 +657,7 @@ class InterpolationData(PhononData):
 
         return np.reshape(np.transpose(dipole, axes=[0, 2, 1, 3]),
                           (3*n_ions, 3*n_ions))
-
+ 
     def _calculate_gamma_correction(self, q_dir):
         """
         Calculate non-analytic correction to the dynamical matrix at q=0 for
@@ -683,7 +693,7 @@ class InterpolationData(PhononData):
         na_corr *= factor
 
         return na_corr
-
+   
     def _get_shell_origins(self, n):
         """
         Given the shell number, compute all the cell origins that lie in that
@@ -754,7 +764,7 @@ class InterpolationData(PhononData):
         nz = np.tile(range(min_xyz[2], max_xyz[2], step), diff[0]*diff[1])
 
         return np.column_stack((nx, ny, nz))
-
+ 
     def _enforce_realspace_asr(self):
         """
         Apply a transformation to the force constants matrix so that it
@@ -866,7 +876,7 @@ class InterpolationData(PhononData):
                 'i,j->ij', g_evecs[:, ac], g_evecs[:, ac])
 
         return dyn_mat
-
+ 
     def _find_acoustic_modes(self, dyn_mat):
         """
         Find the acoustic modes from a dynamical matrix, they should have
@@ -960,7 +970,7 @@ class InterpolationData(PhononData):
             cell_phases *= unique_cell_phases[unique_cell_i[:, i]]
 
         return sc_phases, cell_phases
-
+ 
     def _calculate_supercell_images(self, lim):
         """
         For each displacement of ion i in the unit cell and ion j in the
@@ -1050,7 +1060,7 @@ class InterpolationData(PhononData):
         # maximum possible images to avoid storing and summing over
         # nonexistent images
         self._sc_image_i = sc_image_i[:, :, :, :np.max(n_sc_images)]
-
+    
     def reorder_freqs(self):
         """
         Reorders frequencies across q-points in order to join branches, and
@@ -1064,7 +1074,7 @@ class InterpolationData(PhononData):
                 stacklevel=2)
             return
         super(InterpolationData, self).reorder_freqs()
-
+    
     def calculate_structure_factor(self, scattering_lengths, dw_arg=None,
                                    **kwargs):
         """
@@ -1101,7 +1111,7 @@ class InterpolationData(PhononData):
             scattering_lengths, dw_arg=dw_arg, **kwargs)
 
         return sf
-
+  
     def _get_dw_data(self, dw_arg, **kwargs):
         """
         Return Data object containing eigenvalues, vectors at the points where
@@ -1124,7 +1134,7 @@ class InterpolationData(PhononData):
             qgrid = mp_grid(dw_arg)
             return InterpolationData(self.seedname, model=self.model,
                                      qpts=qgrid, **kwargs)
-
+   
     def calculate_sqw_map(self, scattering_lengths, ebins, **kwargs):
         """
         Calculate the structure factor for each q-point contained in data, and
