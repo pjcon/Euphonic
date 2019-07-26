@@ -2,6 +2,7 @@ import math
 import sys
 import warnings
 import numpy as np
+from numba import jit, prange
 from scipy.linalg.lapack import zheev
 from scipy.special import erfc
 from euphonic import ureg
@@ -613,15 +614,14 @@ class InterpolationData(PhononData):
             gvecs_cart = self._gvecs_cart
 
         # Calculate real space term
-        real_dipole = np.zeros((n_ions, n_ions, 3, 3), dtype=np.complex128)
         # Calculate real space phase factor
         q_dot_ra = np.einsum('i,ji->j', q_norm, cells)
         real_phases = np.exp(2j*math.pi*q_dot_ra)
-        for i in range(n_ions):
-            idx = np.sum(range(n_ions - i, n_ions), dtype=np.int32)
-            for j in range(i, n_ions):
-                real_dipole[i, j] = np.einsum(
-                    'ijk,i->jk', H_ab[:, idx + j], real_phases)
+
+        real_dipole_tmp = self._calculate_real_dipole_numba(H_ab, real_phases)
+        real_dipole = np.zeros((n_ions, n_ions, 3, 3), dtype=np.complex128)
+        triu_idx = np.triu_indices(n_ions)
+        real_dipole[triu_idx] = real_dipole_tmp
         real_dipole *= eta**3/math.sqrt(np.linalg.det(dielectric))
 
         # Calculate reciprocal term
@@ -660,6 +660,16 @@ class InterpolationData(PhononData):
 
         return np.reshape(np.transpose(dipole, axes=[0, 2, 1, 3]),
                           (3*n_ions, 3*n_ions))
+
+    @staticmethod
+    @jit(nopython=True, nogil=True, parallel=True)
+    def _calculate_real_dipole_numba(H_ab, real_phases):
+        real_dipole_tmp = np.zeros((H_ab.shape[1], 3, 3), dtype=np.complex128)
+
+        for i in prange(len(H_ab)):
+            real_dipole_tmp += real_phases[i]*H_ab[i]
+
+        return real_dipole_tmp
 
     def _calculate_gamma_correction(self, q_dir):
         """
@@ -863,7 +873,7 @@ class InterpolationData(PhononData):
             The indices of the acoustic modes at the gamma point
         g_evals : (3*n_ions,) float ndarray
             Dynamical matrix eigenvalues at gamma
-        g_evecs : (3*n_ions, n_ions, 3) complex ndarray
+        g_evecs : (3*n_ions, 3*n_ions) complex ndarray
             Dynamical matrix eigenvectors at gamma
 
         Returns
@@ -897,7 +907,7 @@ class InterpolationData(PhononData):
             The indices of the acoustic modes
         evals : (3*n_ions) float ndarray
             Dynamical matrix eigenvalues
-        evecs : (3*n_ions, n_ions, 3) complex ndarray
+        evecs : (3*n_ions, 3*n_ions) complex ndarray
             Dynamical matrix eigenvectors
         """
         n_branches = dyn_mat.shape[0]
