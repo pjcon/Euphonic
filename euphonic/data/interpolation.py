@@ -9,7 +9,6 @@ from euphonic.util import is_gamma, mp_grid
 from euphonic.data.phonon import PhononData
 from euphonic._readers import _castep
 
-
 if sys.version_info[0] < 3:
     import types
     import copy_reg
@@ -235,12 +234,29 @@ class InterpolationData(PhononData):
             self.split_eigenvecs = np.empty((0, 3*self.n_ions, self.n_ions, 3),
                                             dtype=np.complex128)
 
+        def pool_init_numpy(freqs_, eigenvecs_):
+            global freqs, eigenvecs
+            freqs = freqs_
+            eigenvecs = eigenvecs_
+
         # Try to create a multiprocessing pool first, in case it fails
-        if nprocs > 1:
+        if nprocs >= 1:
+            import ctypes
+            from multiprocessing import Pool, Array
+            from functools import partial
+            evecs_size = len(qpts)*((3*self.n_ions)**2)*2
+            freqs_shared = Array(ctypes.c_double, len(qpts)*3*self.n_ions,
+                                 lock=False)
+            eigenvecs_shared =  Array(ctypes.c_double, evecs_size,
+                                      lock=False)
+            freqs = (np.ctypeslib.as_array(freqs_shared)
+                    .reshape(len(qpts), 3*self.n_ions))
+            eigenvecs = ((np.ctypeslib.as_array(eigenvecs_shared).view(np.complex128))
+                        .reshape((len(qpts), 3*self.n_ions, self.n_ions, 3)))
             try:
-                from multiprocessing import Pool
-                from functools import partial
-                pool = Pool(processes=nprocs)
+                pool = Pool(processes=nprocs,
+                            initializer=pool_init_numpy,
+                            initargs=(freqs, eigenvecs))
             except RuntimeError:
                 warnings.warn(('\nA RuntimeError was raised when initialising '
                                'the multiprocessing Pool. This is probably due'
@@ -325,13 +341,11 @@ class InterpolationData(PhononData):
                 unique_cell_origins, unique_cell_i, ac_i, g_evals,
                 g_evecs, dyn_mat_weighting, dipole, asr, splitting)
 
-        if nprocs > 1:
+        if nprocs >= 1:
             results = pool.map(partial(self._calculate_phonons_at_q, data=data), range(len(qpts)))
             pool.close()
             pool.join()
-            freqs, eigenvecs, split_freqs, split_eigenvecs, split_i = zip(*results)
-            freqs = np.stack(freqs, axis=0)
-            eigenvecs = np.stack(eigenvecs, axis=0)
+            split_freqs, split_eigenvecs, split_i = zip(*results)
             split_i = np.concatenate(split_i)
             if len(split_i > 0):
                split_freqs = np.concatenate(split_freqs)
@@ -434,14 +448,14 @@ class InterpolationData(PhononData):
             evals[imag_freqs] *= -1
 
             if i == 0:
-                freqs = evals
-                eigenvecs = evecs
+                freqs[q] = evals
+                eigenvecs[q] = evecs
             else:
                 split_i = np.concatenate((split_i, [q]))
                 sfreqs = np.concatenate((sfreqs, [evals]))
                 sevecs = np.concatenate((sevecs, [evecs]))
 
-        return freqs, eigenvecs, sfreqs, sevecs, split_i
+        return sfreqs, sevecs, split_i
 
 
     def _calculate_phonons_at_q(
