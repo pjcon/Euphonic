@@ -9,6 +9,7 @@ from euphonic.util import is_gamma, mp_grid
 from euphonic.data.phonon import PhononData
 from euphonic._readers import _castep
 
+# Enable pickling of class methods in Python 2
 if sys.version_info[0] < 3:
     import types
     import copy_reg
@@ -234,51 +235,6 @@ class InterpolationData(PhononData):
             self.split_eigenvecs = np.empty((0, 3*self.n_ions, self.n_ions, 3),
                                             dtype=np.complex128)
 
-
-        # Try to create a multiprocessing pool first, in case it fails
-        if nprocs > 1:
-            import ctypes
-            from multiprocessing import Pool, Array
-            from functools import partial
-            evecs_size = len(qpts)*((3*self.n_ions)**2)*2
-            freqs_shared_c = Array(ctypes.c_double, len(qpts)*3*self.n_ions,
-                                 lock=False)
-            eigenvecs_shared_c =  Array(ctypes.c_double, evecs_size,
-                                      lock=False)
-            freqs_shared = (np.ctypeslib.as_array(freqs_shared_c)
-                            .reshape(len(qpts), 3*self.n_ions))
-            eigenvecs_shared = ((np.ctypeslib.as_array(eigenvecs_shared_c)
-                                 .view(np.complex128)).reshape(
-                (len(qpts), 3*self.n_ions, self.n_ions, 3)))
-            try:
-                def pool_init(freqs_, eigenvecs_):
-                    global freqs_shared, eigenvecs_shared
-                    freqs_shared = freqs_
-                    eigenvecs_shared = eigenvecs_
-
-                pool = Pool(processes=nprocs,
-                            initializer=pool_init,
-                            initargs=(freqs_shared, eigenvecs_shared))
-            except RuntimeError:
-                warnings.warn(('\nA RuntimeError was raised when initialising '
-                               'the multiprocessing Pool. This is probably due'
-                               'to calling calculate_fine_phonons with multipr'
-                               'ocessing outside of a __main__ block on Window'
-                               's. This error is caught here to prevent proces'
-                               'ses recursively being spawned. The calculation'
-                               ' may or may not have worked, but don\'t rely o'
-                               'n it! See \'Safe importing of main module\' : '
-                               'https://docs.python.org/3.7/library/multiproce'
-                               'ssing.html#the-spawn-and-forkserver-start-meth'
-                               'ods'), stacklevel=2)
-                return
-        else:
-            self._freqs = np.zeros((len(qpts), 3*self.n_ions))
-            self.eigenvecs = np.zeros(
-                (len(qpts), 3*self.n_ions, self.n_ions, 3),
-                dtype=np.complex128)
-
-
         # Construct list of supercell ion images
         lim = 2  # Supercell image limit
         if not hasattr(self, 'sc_image_i'):
@@ -319,8 +275,8 @@ class InterpolationData(PhononData):
             force_constants = self._force_constants_asr
         else:
             force_constants = self._force_constants
+
         # Precompute fc matrix weighted by number of supercell ion images
-        # (for cumulant method)
         n_sc_images_repeat = np.transpose(
             self._n_sc_images.repeat(3, axis=2).repeat(3, axis=1),
             axes=[0, 2, 1])
@@ -349,31 +305,82 @@ class InterpolationData(PhononData):
                 unique_cell_origins, unique_cell_i, ac_i, g_evals,
                 g_evecs, dyn_mat_weighting, dipole, asr, splitting)
 
+        # Set up multiprocessing to calculate phonons using a Pool, using
+        # shared memory arrays for eigenvalues/vectors. This is done rather
+        # than returning them from the _calculate_phonons_at_q function as
+        # when the number of q-points/ions is very large, the eigenvectors
+        # become too large to be returned from Pool and causes
+        # a MaybeEncondingError
         if nprocs > 1:
-            # Split q-points into sets, 1 for each process
-            n_qpts = len(qpts)
-            n = int(n_qpts/nprocs)
-            rem = n_qpts%nprocs
-            qi = np.concatenate((
-                np.arange(0, (n + 1)*rem, n + 1, dtype=np.int32),
-                np.arange((n + 1)*rem, n_qpts, n, dtype=np.int32)))
-            qf = np.append(qi[1:], n_qpts)
-            q_sets = [range(qi[i], qf[i]) for i, val in enumerate(qi)]
+            import ctypes
+            from multiprocessing import Pool, Array
+            from functools import partial
+            evecs_size = len(qpts)*((3*self.n_ions)**2)*2
+            freqs_shared_c = Array(ctypes.c_double, len(qpts)*3*self.n_ions,
+                                 lock=False)
+            eigenvecs_shared_c =  Array(ctypes.c_double, evecs_size,
+                                      lock=False)
+            # Ignore warning about buffer not matching item size when
+            # reshaping ctypes array. See https://bugs.python.org/issue10746
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', category=RuntimeWarning)
+                freqs_shared = (np.ctypeslib.as_array(freqs_shared_c)
+                                .reshape(len(qpts), 3*self.n_ions))
+                eigenvecs_shared = ((np.ctypeslib.as_array(eigenvecs_shared_c)
+                                    .view(np.complex128))
+                                    .reshape((len(qpts), 3*self.n_ions,
+                                             self.n_ions, 3)))
 
+            try:
+                def pool_init(freqs_, eigenvecs_):
+                    global freqs_shared, eigenvecs_shared
+                    freqs_shared = freqs_
+                    eigenvecs_shared = eigenvecs_
+
+                pool = Pool(processes=nprocs,
+                            initializer=pool_init,
+                            initargs=(freqs_shared, eigenvecs_shared))
+            except RuntimeError:
+                warnings.warn(('\nA RuntimeError was raised when initialising '
+                               'the multiprocessing Pool. This is probably due'
+                               'to calling calculate_fine_phonons with multipr'
+                               'ocessing outside of a __main__ block on Window'
+                               's. This error is caught here to prevent proces'
+                               'ses recursively being spawned. The calculation'
+                               ' may or may not have worked, but don\'t rely o'
+                               'n it! See \'Safe importing of main module\' : '
+                               'https://docs.python.org/3.7/library/multiproce'
+                               'ssing.html#the-spawn-and-forkserver-start-meth'
+                               'ods'), stacklevel=2)
+                return
             results = pool.map(
-                partial(self._calculate_phonons_at_qs, data=data), q_sets)
+                partial(self._calculate_phonons_at_q, data=data), 
+                range(len(qpts)))
             pool.close()
             pool.join()
             self._freqs = freqs_shared
-            self._eigenvecs = eigenvecs_shared
+            self.eigenvecs = eigenvecs_shared
             split_freqs, split_eigenvecs, split_i = zip(*results)
             split_i = np.concatenate(split_i)
             if len(split_i > 0):
                split_freqs = np.concatenate(split_freqs)
                split_eigenvecs = np.concatenate(split_eigenvecs)
         else:
-            split_freqs, split_eigenvecs, split_i = \
-                self._calculate_phonons_at_qs(range(len(qpts)), data)
+            self._freqs = np.zeros((len(qpts), 3*self.n_ions))
+            self.eigenvecs = np.zeros(
+                (len(qpts), 3*self.n_ions, self.n_ions, 3),
+                dtype=np.complex128)
+            split_i = np.empty((0,), dtype=np.int32)
+            split_freqs = np.empty((0, 3*self.n_ions))
+            split_eigenvecs = np.empty((0, 3*self.n_ions, self.n_ions, 3),
+                                       dtype=np.complex128)
+            for q in range(len(qpts)):
+                sfreqs, sevecs, _ = self._calculate_phonons_at_q(q, data)
+                if len(sfreqs) > 0:
+                    split_i = np.concatenate((split_i, [q]))
+                    split_freqs = np.concatenate((split_freqs, sfreqs))
+                    split_eigenvecs = np.concatenate(
+                        (split_eigenvecs, sevecs))
 
         if set_attrs:
             self.asr = asr
@@ -388,85 +395,85 @@ class InterpolationData(PhononData):
 
         return self.freqs, self.eigenvecs
 
-    def _calculate_phonons_at_qs(self, q_nums, data):
+    def _calculate_phonons_at_q(self, q, data):
         """
         Given a list of q-points and some precalculated q-independent values, calculate
         and diagonalise the dynamical matrix and return the frequencies and
         eigenvalues. Optionally also includes the Ewald dipole sum correction
         and LO-TO splitting
         """
+
         (qpts, fc_img_weighted, unique_sc_offsets, unique_sc_i,
          unique_cell_origins, unique_cell_i, ac_i, g_evals,
          g_evecs, dyn_mat_weighting, dipole, asr, splitting) = data
         n_ions = self.n_ions
 
+        qpt = qpts[q]
+
+        dyn_mat = self._calculate_dyn_mat(
+            qpt, fc_img_weighted, unique_sc_offsets, unique_sc_i,
+            unique_cell_origins, unique_cell_i)
+
+        if dipole:
+            dipole_corr = self._calculate_dipole_correction(qpt)
+            dyn_mat += dipole_corr
+
+        if asr == 'reciprocal':
+            dyn_mat = self._enforce_reciprocal_asr(
+                dyn_mat, ac_i, g_evals, g_evecs)
+
+        # Calculate LO-TO splitting by calculating non-analytic correction
+        # to dynamical matrix
+        if splitting and is_gamma(qpt):
+            if q == 0:
+                q_dirs = [qpts[1]]
+            elif q == (len(qpts) - 1):
+                q_dirs = [qpts[-2]]
+            else:
+                q_dirs = [-qpts[q - 1], qpts[q + 1]]
+            na_corrs = np.zeros((len(q_dirs), 3*n_ions, 3*n_ions),
+                                dtype=np.complex128)
+            for i, q_dir in enumerate(q_dirs):
+                na_corrs[i] = self._calculate_gamma_correction(q_dir)
+        else:
+            # Correction is zero if not a gamma point or splitting = False
+            na_corrs = np.array([0])
+
         split_i = np.empty((0,), dtype=np.int32)
         sfreqs = np.empty((0, 3*n_ions))
         sevecs = np.empty((0, 3*n_ions, n_ions, 3))
-        for q in q_nums:
-            qpt = qpts[q]
+        for i, na_corr in enumerate(na_corrs):
+            dyn_mat_corr = dyn_mat + na_corr
 
-            dyn_mat = self._calculate_dyn_mat(
-                qpt, fc_img_weighted, unique_sc_offsets, unique_sc_i,
-                unique_cell_origins, unique_cell_i)
+            # Mass weight dynamical matrix
+            dyn_mat_corr *= dyn_mat_weighting
 
-            if dipole:
-                dipole_corr = self._calculate_dipole_correction(qpt)
-                dyn_mat += dipole_corr
+            try:
+                evals, evecs = np.linalg.eigh(dyn_mat_corr)
+            # Fall back to zheev if eigh fails (eigh calls zheevd)
+            except np.linalg.LinAlgError:
+                evals, evecs, info = zheev(dyn_mat_corr)
 
-            if asr == 'reciprocal':
-                dyn_mat = self._enforce_reciprocal_asr(
-                    dyn_mat, ac_i, g_evals, g_evecs)
+            evecs = np.reshape(np.transpose(evecs),
+                               (3*n_ions, n_ions, 3))
+            # Set imaginary frequencies to negative
+            imag_freqs = np.where(evals < 0)
+            evals = np.sqrt(np.abs(evals))
+            evals[imag_freqs] *= -1
 
-            # Calculate LO-TO splitting by calculating non-analytic correction
-            # to dynamical matrix
-            if splitting and is_gamma(qpt):
-                if q == 0:
-                    q_dirs = [qpts[1]]
-                elif q == (len(qpts) - 1):
-                    q_dirs = [qpts[-2]]
-                else:
-                    q_dirs = [-qpts[q - 1], qpts[q + 1]]
-                na_corrs = np.zeros((len(q_dirs), 3*n_ions, 3*n_ions),
-                                    dtype=np.complex128)
-                for i, q_dir in enumerate(q_dirs):
-                    na_corrs[i] = self._calculate_gamma_correction(q_dir)
-            else:
-                # Correction is zero if not a gamma point or splitting = False
-                na_corrs = np.array([0])
-
-            for i, na_corr in enumerate(na_corrs):
-                dyn_mat_corr = dyn_mat + na_corr
-
-                # Mass weight dynamical matrix
-                dyn_mat_corr *= dyn_mat_weighting
-
+            if i == 0:
+                # If multiprocessing has been used, freqs/eigenvecs are
+                # stored in global vars shared between processes
                 try:
-                    evals, evecs = np.linalg.eigh(dyn_mat_corr)
-                # Fall back to zheev if eigh fails (eigh calls zheevd)
-                except np.linalg.LinAlgError:
-                    evals, evecs, info = zheev(dyn_mat_corr)
-
-                evecs = np.reshape(np.transpose(evecs),
-                                   (3*n_ions, n_ions, 3))
-                # Set imaginary frequencies to negative
-                imag_freqs = np.where(evals < 0)
-                evals = np.sqrt(np.abs(evals))
-                evals[imag_freqs] *= -1
-
-                if i == 0:
-                    # If multiprocessing has been used, freqs/eigenvecs are
-                    # stored in global vars shared between processes
-                    try:
-                        freqs_shared[q] = evals
-                        eigenvecs_shared[q] = evecs
-                    except NameError:
-                        self._freqs[q] = evals
-                        self.eigenvecs[q] = evecs
-                else:
-                    split_i = np.concatenate((split_i, [q]))
-                    sfreqs = np.concatenate((sfreqs, [evals]))
-                    sevecs = np.concatenate((sevecs, [evecs]))
+                    freqs_shared[q] = evals
+                    eigenvecs_shared[q] = evecs
+                except NameError:
+                    self._freqs[q] = evals
+                    self.eigenvecs[q] = evecs
+            else:
+                split_i = np.concatenate((split_i, [q]))
+                sfreqs = np.concatenate((sfreqs, [evals]))
+                sevecs = np.concatenate((sevecs, [evecs]))
 
         return sfreqs, sevecs, split_i
 
