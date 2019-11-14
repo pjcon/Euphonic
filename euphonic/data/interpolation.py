@@ -149,6 +149,38 @@ class InterpolationData(PhononData):
     def born(self):
         return self._born*ureg('e')
 
+
+    @classmethod
+    def from_castep():
+        data = _castep._read_interpolation_data(seedname, path)
+        return self(seedname, model='castep')._set_data(data)
+
+
+    @classmethod
+    def from_phonopy():
+        data = _phonopy._read_interpolation_data(seedname, path)
+        return self(seedname, model='phonopy')._set_data(data)
+
+
+    def _set_data(self, data):
+        self.n_ions = data['n_ions']
+        self.n_branches = data['n_branches']
+        self._cell_vec = data['cell_vec']
+        self._recip_vec = data['recip_vec']
+        self.ion_r = data['ion_r']
+        self.ion_type = data['ion_type']
+        self._ion_mass = data['ion_mass']
+        self._force_constants = data['force_constants']
+        self.sc_matrix = data['sc_matrix']
+        self.n_cells_in_sc = data['n_cells_in_sc']
+        self.cell_origins = data['cell_origins']
+
+        try:
+            self._born = data['born']
+            self.dielectric = data['dielectric']
+        except KeyError:
+            pass
+
     def _get_data(self, seedname, model, path):
         """"
         Calls the correct reader to get the required data, and sets the
