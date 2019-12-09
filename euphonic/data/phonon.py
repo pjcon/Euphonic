@@ -119,7 +119,7 @@ class PhononData(Data):
         if model.lower() == 'castep':
             data = _castep._read_phonon_data(seedname, path)
         elif model.lower() == 'phonopy':
-            data = _phonon._read_phonon_data(seedname, path)
+            data = _phonopy._read_phonon_data(path)
         else:
             raise ValueError(
                 "{:s} is not a valid model, please use one of {{'CASTEP'}}"
