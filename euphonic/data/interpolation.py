@@ -111,6 +111,24 @@ class InterpolationData(PhononData):
         if 'seedname' in kwargs.keys():
             self.seedname = kwargs['seedname']
 
+        if 'summary_file' in kwargs.keys():
+            self.summary_file = kwargs['summary_file']
+
+        if 'disp_file' in kwargs.keys():
+            self.disp_file = kwargs['disp_file']
+
+        if 'fc_file' in kwargs.keys():
+            self.fc_file = kwargs['fc_file']
+
+        if 'phonon_file' in kwargs.keys():
+            self.phonon_file = kwargs['phonon_file']
+
+        if 'born_file' in kwargs.keys():
+            self.born_file = kwargs['born_file']
+
+        if 'qpts_file' in kwargs.keys():
+            self.qpts_file = kwargs['qpts_file']
+
         if 'model' in kwargs.keys():
             self.model = kwargs['model']
 
