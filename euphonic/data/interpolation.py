@@ -171,19 +171,30 @@ class InterpolationData(PhononData):
         return self._born*ureg('e')
 
     @classmethod
-    def from_castep(seedname, path=''):
+    def from_castep(path='', **kwargs):
         """
         Calls the CASTEP interpolation data reader and sets the InerpolationData attributes.
 
         Parameters
         ----------
-        seedname : str
-            Seedname of file(s) to read
+        kwargs : optional
+            qpts_file : str
+                Seedname of phonopy qpoints file
+            disp_file : str
+                Seedname of phonopy displacements file
+            summary_file : str
+                Seedname of phonopy user script summary file
+            born_file : str
+                Seedname of BORN file
+            fc_file : str
+                Seedname of FORCE_CONSTANTS file
+
         path : str, optional
             Path to dir containing the file(s), if in another directory
         """
-        data = _castep._read_interpolation_data(seedname, path)
-        return self(data, seedname=seedname, model='castep')
+
+        data = _castep._read_interpolation_data(path, **kwargs)
+        return self(data, model='castep', **kwargs)
 
     def _set_data(self, data):
         self.n_ions = data['n_ions']
