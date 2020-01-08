@@ -147,22 +147,6 @@ class PhononData(Data):
         data = _castep._read_phonon_data(seedname, path)
         return self(data, seedname=seedname, model='castep')
 
-
-    @classmethod
-    def from_phonopy(path='.', **kwargs):
-        """
-        Calls the CASTEP phonon data reader and sets the PhononData attributes.
-
-        Parameters
-        ----------
-        seedname : str
-            Seedname of file(s) to read
-        path : str
-            Path to dir containing the file(s), if in another directory
-        """
-        data = _phonopy._read_phonon_data(path, **kwargs)
-        return self(data, model='phonopy', **kwargs)
-
     def _set_data(self, data):
         self.n_ions = data['n_ions']
         self.n_branches = data['n_branches']
