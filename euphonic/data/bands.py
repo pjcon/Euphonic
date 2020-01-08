@@ -41,36 +41,24 @@ class BandsData(Data):
         Default units eV
     """
 
-    def __init__(self, data, **kwargs):
-        """
+    def __init__(self, seedname, model='CASTEP', path=''):
+        """"
         Calls functions to read the correct file(s) and sets BandsData
         attributes
 
         Parameters
         ----------
-        data : dict
-            A dict containing the following keys: n_qpts, n_spins,
-            n_branches, fermi, cell_vec, recip_vec, qpts, weights,
-            freqs, freq_down, and optional: n_ions, ion_r, ion_type.
         seedname : str
             Seedname of file(s) to read
-        model : {'CASTEP', 'PHONOPY'}, optional, default None
+        model : {'CASTEP'}, optional, default 'CASTEP'
             Which model has been used. e.g. if seedname = 'Fe' and
             model='CASTEP', the 'Fe.bands' file will be read
+        path : str, optional
+            Path to dir containing the file(s), if in another directory
         """
-        if type(data) is str:
-            # Feature removed error ('post deprecation' error)
-            raise Exception('The old interface is now replaced by',
-                            'BandsData.read_castep(seedname).',
-                            '(Please see documentation for more information.)')
-
-        self._set_data(data)
-
-        if 'seedname' in kwargs.keys():
-            self.seedname = kwargs['seedname']
-
-        if 'model' in kwargs.keys():
-            self.model = kwargs['model']
+        self._get_data(seedname, model, path)
+        self.seedname = seedname
+        self.model = model
 
         self._l_units = 'angstrom'
         self._e_units = 'eV'
@@ -95,22 +83,28 @@ class BandsData(Data):
     def fermi(self):
         return self._fermi*ureg('hartree').to(self._e_units, 'spectroscopy')
 
-    @classmethod
-    def from_castep(seedname, path=''):
-        """
-        Calls the CASTEP bands data reader and sets the BandsData attributes
+    def _get_data(self, seedname, model, path):
+        """"
+        Calls the correct reader to get the required data, and sets the
+        BandsData attributes
 
         Parameters
         ----------
         seedname : str
             Seedname of file(s) to read
+        model : {'CASTEP'}, optional, default 'CASTEP'
+            Which model has been used. e.g. if seedname = 'Fe' and
+            model='CASTEP', the 'Fe.bands' file will be read
         path : str
             Path to dir containing the file(s), if in another directory
         """
-        data = _castep._read_bands_data(seedname, path)
-        return self(data, seedname=seedname, model='castep')
+        if model.lower() == 'castep':
+            data = _castep._read_bands_data(seedname, path)
+        else:
+            raise ValueError(
+                "{:s} is not a valid model, please use one of {{'CASTEP'}}"
+                .format(model))
 
-    def _set_data(self, data):
         self.n_qpts = data['n_qpts']
         self.n_spins = data['n_spins']
         self.n_branches = data['n_branches']
@@ -128,7 +122,6 @@ class BandsData(Data):
             self.ion_type = data['ion_type']
         except KeyError:
             pass
-
 
     def calculate_dos(self, dos_bins, gwidth, lorentz=False,
                       weights=None):

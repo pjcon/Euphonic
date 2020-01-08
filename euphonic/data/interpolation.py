@@ -82,7 +82,8 @@ class InterpolationData(PhononData):
 
     """
 
-    def __init__(self, data, **kwargs):
+    def __init__(self, seedname, model='CASTEP', path='', qpts=np.array([]),
+                 **kwargs):
         """
         Calls functions to read the correct file(s) and sets InterpolationData
         attributes, additionally can calculate frequencies/eigenvectors at
@@ -90,48 +91,23 @@ class InterpolationData(PhononData):
 
         Parameters
         ----------
-        data : dict
-            A dict containing the following keys: n_ions, n_branches, cell_vec,
-            ion_r, ion_type, ion_mass, force_constants, sc_matrix, n_cells_in_sc,
-            cell_origins, and optional: born, dielectric.
         seedname : str
             Seedname of file(s) to read
-        model : {'CASTEP', 'PHONOPY'}, optional, default None
+        model : {'CASTEP'}, optional, default 'CASTEP'
             Which model has been used. e.g. if seedname = 'quartz' and
             model='CASTEP', the 'quartz.castep_bin' file will be read
+        path : str, optional
+            Path to dir containing the file(s), if in another directory
+        qpts : (n_qpts, 3) float ndarray, optional
+            Q-point coordinates to use for an initial interpolation calculation
+        **kwargs
+            If qpts has been specified, kwargs may be used to pass keyword
+            arguments to calculate_fine_phonons
         """
-        if type(data) is str:
-            # Feature removed error ('post deprecation' error)
-            raise Exception('The old interface is now replaced by',
-                            'BandsData.read_castep(seedname).',
-                            '(Please see documentation for more information.)')
+        self._get_data(seedname, model, path)
 
-        self._set_data(data)
-
-        if 'seedname' in kwargs.keys():
-            self.seedname = kwargs['seedname']
-
-        if 'summary_file' in kwargs.keys():
-            self.summary_file = kwargs['summary_file']
-
-        if 'disp_file' in kwargs.keys():
-            self.disp_file = kwargs['disp_file']
-
-        if 'fc_file' in kwargs.keys():
-            self.fc_file = kwargs['fc_file']
-
-        if 'phonon_file' in kwargs.keys():
-            self.phonon_file = kwargs['phonon_file']
-
-        if 'born_file' in kwargs.keys():
-            self.born_file = kwargs['born_file']
-
-        if 'qpts_file' in kwargs.keys():
-            self.qpts_file = kwargs['qpts_file']
-
-        if 'model' in kwargs.keys():
-            self.model = kwargs['model']
-
+        self.seedname = seedname
+        self.model = model
         self.n_qpts = 0
         self.qpts = np.empty((0, 3))
 
@@ -147,6 +123,8 @@ class InterpolationData(PhononData):
         self._l_units = 'angstrom'
         self._e_units = 'meV'
 
+        if len(qpts) > 0:
+            self.calculate_fine_phonons(qpts, **kwargs)
 
     @property
     def _freqs(self):
@@ -170,33 +148,30 @@ class InterpolationData(PhononData):
     def born(self):
         return self._born*ureg('e')
 
-    @classmethod
-    def from_castep(path='', **kwargs):
-        """
-        Calls the CASTEP interpolation data reader and sets the InerpolationData attributes.
+    def _get_data(self, seedname, model, path):
+        """"
+        Calls the correct reader to get the required data, and sets the
+        PhononData attributes
 
         Parameters
         ----------
-        kwargs : optional
-            qpts_file : str
-                Seedname of phonopy qpoints file
-            disp_file : str
-                Seedname of phonopy displacements file
-            summary_file : str
-                Seedname of phonopy user script summary file
-            born_file : str
-                Seedname of BORN file
-            fc_file : str
-                Seedname of FORCE_CONSTANTS file
-
+        seedname : str
+            Seedname of file(s) to read
+        model : {'CASTEP'}, optional, default 'CASTEP'
+            Which model has been used. e.g. if seedname = 'quartz' and
+            model='CASTEP', the 'quartz.castep_bin' file will be read
         path : str, optional
             Path to dir containing the file(s), if in another directory
         """
+        if model.lower() == 'castep':
+            data = _castep._read_interpolation_data(seedname, path)
+        elif model.lower() == 'phonopy':
+            data = _phonopy._read_interpolation_data(path)
+        else:
+            raise ValueError(
+                "{:s} is not a valid model, please use one of {{'CASTEP'}}"
+                .format(model))
 
-        data = _castep._read_interpolation_data(path, **kwargs)
-        return self(data, model='castep', **kwargs)
-
-    def _set_data(self, data):
         self.n_ions = data['n_ions']
         self.n_branches = data['n_branches']
         self._cell_vec = data['cell_vec']
@@ -214,7 +189,6 @@ class InterpolationData(PhononData):
             self.dielectric = data['dielectric']
         except KeyError:
             pass
-
 
     def calculate_fine_phonons(
         self, qpts, asr=None, precondition=False, dipole=True,
