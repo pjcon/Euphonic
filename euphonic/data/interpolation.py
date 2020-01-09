@@ -8,6 +8,7 @@ from euphonic import ureg
 from euphonic.util import is_gamma, mp_grid
 from euphonic.data.phonon import PhononData
 from euphonic._readers import _castep
+from euphonic._readers import _phonopy
 
 
 if sys.version_info[0] < 3:
@@ -171,6 +172,8 @@ class InterpolationData(PhononData):
         """
         if model.lower() == 'castep':
             data = _castep._read_interpolation_data(seedname, path)
+        elif model.lower() == 'phonopy':
+            data = _phonopy._read_interpolation_data(path)
         else:
             raise ValueError(
                 "{:s} is not a valid model, please use one of {{'CASTEP'}}"

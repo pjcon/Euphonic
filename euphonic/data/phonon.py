@@ -4,6 +4,7 @@ from euphonic import ureg
 from euphonic.util import direction_changed, bose_factor, is_gamma
 from euphonic.data.data import Data
 from euphonic._readers import _castep
+from euphonic._readers import _phonopy
 
 
 class PhononData(Data):
@@ -117,6 +118,8 @@ class PhononData(Data):
         """
         if model.lower() == 'castep':
             data = _castep._read_phonon_data(seedname, path)
+        elif model.lower() == 'phonopy':
+            data = _phonopy._read_phonon_data(path)
         else:
             raise ValueError(
                 "{:s} is not a valid model, please use one of {{'CASTEP'}}"
